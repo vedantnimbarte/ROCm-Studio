@@ -1,0 +1,1574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ROCm Forge — Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300;400;500;700&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ---------- TOKENS ---------- */
+  :root {
+    --bg:        #0a0a0c;
+    --bg-2:      #0f0f12;
+    --panel:     #131318;
+    --panel-2:   #17171d;
+    --hairline:  #22222a;
+    --hairline-2:#2c2c36;
+    --ink:       #ece8dc;
+    --ink-2:     #b8b2a3;
+    --muted:     #6c685c;
+    --muted-2:   #4a473e;
+    --red:       #ff3a25;       /* AMD signal red */
+    --red-glow:  #ff3a2533;
+    --phos:      #b6ff8a;       /* phosphor green telemetry */
+    --phos-dim:  #b6ff8a44;
+    --amber:     #ffb627;
+    --cyan:      #7fc8e8;
+    --violet:    #b59cff;
+
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+    --sans: "Geist", "Helvetica Neue", sans-serif;
+    --serif: "Instrument Serif", "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  body {
+    background:
+      radial-gradient(1200px 800px at 80% -10%, #1a0f0c 0%, transparent 60%),
+      radial-gradient(900px 700px at -10% 100%, #0a1414 0%, transparent 55%),
+      var(--bg);
+    min-height: 100vh;
+    position: relative;
+  }
+
+  /* CRT scanlines + grain — extremely subtle */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.012) 0 1px,
+      transparent 1px 3px
+    );
+    z-index: 1000;
+    mix-blend-mode: overlay;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: 0.5;
+    z-index: 1001;
+    mix-blend-mode: overlay;
+  }
+
+  ::selection { background: var(--red); color: #fff; }
+
+  /* ---------- LAYOUT ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ---------- SIDEBAR ---------- */
+  .sidebar {
+    border-right: 1px solid var(--hairline);
+    background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
+    padding: 22px 0 24px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--hairline-2); }
+
+  .brand {
+    padding: 0 22px 22px;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 18px;
+  }
+  .brand-mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .brand-logo {
+    width: 28px; height: 28px;
+    border: 1px solid var(--red);
+    position: relative;
+    background:
+      linear-gradient(135deg, transparent 48%, var(--red) 49% 51%, transparent 52%),
+      linear-gradient(45deg, transparent 48%, var(--red) 49% 51%, transparent 52%);
+    box-shadow: 0 0 24px var(--red-glow), inset 0 0 8px rgba(255,58,37,0.2);
+  }
+  .brand-logo::after {
+    content: "";
+    position: absolute; inset: 6px;
+    background: var(--red);
+    box-shadow: 0 0 12px var(--red);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.9; }
+    50% { opacity: 0.35; }
+  }
+  .brand-name {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-style: italic;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .brand-name b { font-style: normal; font-weight: 400; }
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .nav-section { padding: 6px 12px; }
+  .nav-label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    color: var(--muted);
+    text-transform: uppercase;
+    padding: 14px 10px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-label span:last-child { color: var(--muted-2); }
+
+  .nav-item {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    align-items: center;
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+  }
+  .nav-item:hover {
+    color: var(--ink);
+    background: var(--panel);
+  }
+  .nav-item.active {
+    background: linear-gradient(90deg, rgba(255,58,37,0.10), transparent 60%);
+    color: var(--ink);
+    border-left: 1px solid var(--red);
+    margin-left: -1px;
+  }
+  .nav-item.active::after {
+    content: "";
+    position: absolute; left: -1px; top: 50%;
+    width: 2px; height: 20px;
+    background: var(--red);
+    transform: translateY(-50%);
+    box-shadow: 0 0 8px var(--red);
+  }
+  .nav-code {
+    font-size: 9.5px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+  .nav-item.active .nav-code { color: var(--red); }
+  .nav-badge {
+    font-size: 9px;
+    background: var(--hairline);
+    padding: 2px 5px;
+    border-radius: 2px;
+    color: var(--ink-2);
+  }
+  .nav-badge.live {
+    background: transparent;
+    color: var(--phos);
+    border: 1px solid var(--phos-dim);
+  }
+  .nav-badge.live::before {
+    content: "●";
+    margin-right: 3px;
+    animation: blink 1.4s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 16px 22px;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .sidebar-footer .row {
+    display: flex; justify-content: space-between;
+    padding: 2px 0;
+  }
+  .sidebar-footer .row b { color: var(--ink-2); font-weight: 400; }
+
+  /* ---------- MAIN ---------- */
+  .main { display: flex; flex-direction: column; min-width: 0; }
+
+  /* ---------- TOP STATUS BAR ---------- */
+  .topbar {
+    height: 44px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--bg-2);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 0 20px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(8px);
+  }
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    overflow: hidden;
+  }
+  .top-stat {
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .top-stat b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .top-stat .dot {
+    width: 6px; height: 6px;
+    background: var(--phos);
+    box-shadow: 0 0 8px var(--phos);
+    border-radius: 50%;
+  }
+  .top-stat .dot.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .divider { width: 1px; height: 14px; background: var(--hairline-2); }
+
+  .topbar-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .icon-btn {
+    width: 28px; height: 28px;
+    border: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--ink-2);
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: 0.15s;
+  }
+  .icon-btn:hover { border-color: var(--hairline-2); color: var(--ink); }
+
+  /* ---------- PAGE HEADER ---------- */
+  .page-head {
+    padding: 28px 32px 24px;
+    border-bottom: 1px solid var(--hairline);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 24px;
+    background:
+      linear-gradient(180deg, rgba(255,58,37,0.04), transparent 70%);
+    position: relative;
+    overflow: hidden;
+  }
+  .page-head::before {
+    content: "";
+    position: absolute;
+    right: -100px; top: -50px;
+    width: 400px; height: 400px;
+    background:
+      radial-gradient(circle, var(--red-glow), transparent 60%);
+    pointer-events: none;
+  }
+  .breadcrumb {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .breadcrumb b { color: var(--ink-2); font-weight: 400; }
+  .breadcrumb .red { color: var(--red); }
+  .page-title {
+    font-family: var(--serif);
+    font-size: 56px;
+    line-height: 1;
+    letter-spacing: -0.025em;
+  }
+  .page-title em {
+    font-style: italic;
+    color: var(--red);
+  }
+  .page-sub {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    margin-top: 10px;
+    letter-spacing: 0.04em;
+  }
+  .page-sub .muted { color: var(--muted); }
+
+  .head-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 9px 16px;
+    background: transparent;
+    border: 1px solid var(--hairline-2);
+    color: var(--ink);
+    cursor: pointer;
+    transition: 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover {
+    border-color: var(--ink-2);
+    background: var(--panel);
+  }
+  .btn.primary {
+    background: var(--red);
+    border-color: var(--red);
+    color: #fff;
+    box-shadow: 0 0 24px var(--red-glow);
+  }
+  .btn.primary:hover {
+    background: #ff5a45;
+    border-color: #ff5a45;
+  }
+  .btn svg { width: 12px; height: 12px; }
+
+  /* ---------- DASHBOARD GRID ---------- */
+  .dash {
+    padding: 28px 32px;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 18px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .panel-head .title { color: var(--ink-2); }
+  .panel-head .title b { color: var(--ink); font-weight: 500; }
+  .panel-head .meta { display: flex; gap: 12px; align-items: center; }
+  .panel-head .meta .live-dot {
+    color: var(--phos);
+    font-size: 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .panel-head .meta .live-dot::before {
+    content: "";
+    width: 6px; height: 6px;
+    background: var(--phos);
+    box-shadow: 0 0 6px var(--phos);
+    border-radius: 50%;
+    animation: blink 1.4s steps(2) infinite;
+  }
+  .panel-body { padding: 18px; flex: 1; }
+
+  /* HERO TELEMETRY PANEL */
+  .hero {
+    grid-column: span 8;
+    grid-row: span 2;
+    min-height: 420px;
+  }
+  .hero-head .gpu-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .hero-head .gpu-tag::before {
+    content: "";
+    width: 8px; height: 8px;
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red);
+    border-radius: 50%;
+  }
+  .hero-body {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 24px;
+    padding: 24px;
+  }
+  .big-metric {
+    border-right: 1px solid var(--hairline);
+    padding-right: 24px;
+  }
+  .big-metric .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .big-metric .value {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 92px;
+    line-height: 0.85;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .big-metric .value .unit {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-style: normal;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .big-metric .sub {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .big-metric .sub .delta {
+    color: var(--phos);
+  }
+
+  .chart-area {
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .mini-stat {
+    padding: 10px 12px;
+    border: 1px solid var(--hairline);
+    background: var(--bg-2);
+  }
+  .mini-stat .l {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .mini-stat .v {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--ink);
+    margin-top: 4px;
+    font-weight: 500;
+  }
+  .mini-stat .v .u { color: var(--muted); font-size: 11px; margin-left: 3px; }
+  .mini-stat .bar {
+    margin-top: 6px;
+    height: 2px;
+    background: var(--hairline);
+    position: relative;
+    overflow: hidden;
+  }
+  .mini-stat .bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: var(--w, 50%);
+    background: var(--phos);
+    box-shadow: 0 0 6px var(--phos-dim);
+  }
+  .mini-stat.warn .bar::after { background: var(--amber); box-shadow: 0 0 6px #ffb62755; }
+  .mini-stat.crit .bar::after { background: var(--red); box-shadow: 0 0 6px var(--red-glow); }
+
+  .chart-wrap {
+    flex: 1;
+    position: relative;
+    border: 1px solid var(--hairline);
+    background:
+      linear-gradient(180deg, rgba(182,255,138,0.02), transparent),
+      var(--bg-2);
+    min-height: 180px;
+    overflow: hidden;
+  }
+  .chart-wrap svg { width: 100%; height: 100%; display: block; }
+  .chart-grid line { stroke: var(--hairline); stroke-width: 0.5; }
+  .chart-area-fill {
+    fill: url(#phosGrad);
+    opacity: 0.8;
+  }
+  .chart-line {
+    fill: none;
+    stroke: var(--phos);
+    stroke-width: 1.4;
+    filter: drop-shadow(0 0 4px var(--phos-dim));
+  }
+  .chart-axis-label {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+  }
+
+  /* COMPATIBILITY SCORE */
+  .score {
+    grid-column: span 4;
+    min-height: 200px;
+  }
+  .score-body {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 22px;
+    padding: 22px;
+    align-items: center;
+  }
+  .gauge {
+    position: relative;
+    width: 160px; height: 160px;
+  }
+  .gauge svg { transform: rotate(-90deg); }
+  .gauge .bg { stroke: var(--hairline); }
+  .gauge .fg { stroke: var(--phos); filter: drop-shadow(0 0 6px var(--phos-dim)); }
+  .gauge-center {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+  }
+  .gauge-center .n {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 56px;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .gauge-center .d {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .score-checks { display: flex; flex-direction: column; gap: 7px; }
+  .check-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-2);
+  }
+  .check-row .ok { color: var(--phos); }
+  .check-row .warn { color: var(--amber); }
+  .check-row .fail { color: var(--red); }
+  .check-row .v {
+    color: var(--muted);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+  }
+
+  /* AI STACK STATUS */
+  .stack { grid-column: span 4; }
+  .stack-list { display: flex; flex-direction: column; }
+  .stack-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px dashed var(--hairline);
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+  .stack-item:last-child { border-bottom: none; }
+  .stack-item .nm { color: var(--ink); font-weight: 500; }
+  .stack-item .ver { color: var(--muted); font-size: 10px; letter-spacing: 0.06em; }
+  .pill {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border: 1px solid var(--hairline-2);
+    color: var(--muted);
+  }
+  .pill.on { color: var(--phos); border-color: var(--phos-dim); }
+  .pill.off { color: var(--muted); }
+  .pill.dl { color: var(--cyan); border-color: #7fc8e855; }
+  .pill.warn { color: var(--amber); border-color: #ffb62755; }
+  .stack-item .glyph {
+    width: 22px; height: 22px;
+    border: 1px solid var(--hairline-2);
+    display: grid; place-items: center;
+    font-size: 11px;
+    color: var(--ink-2);
+    background: var(--bg-2);
+  }
+
+  /* INFERENCE / RUN */
+  .inference { grid-column: span 4; }
+  .inf-current {
+    padding: 16px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border-bottom: 1px solid var(--hairline);
+  }
+  .inf-current .model {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .inf-current .quant {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .inf-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-top: 1px solid var(--hairline);
+  }
+  .inf-stat {
+    padding: 14px 12px;
+    border-right: 1px solid var(--hairline);
+    text-align: center;
+  }
+  .inf-stat:last-child { border-right: none; }
+  .inf-stat .l {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .inf-stat .v {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 26px;
+    margin-top: 4px;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .inf-stat .v .u {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-style: normal;
+    color: var(--muted);
+    margin-left: 3px;
+    letter-spacing: 0.1em;
+  }
+  .inf-output {
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-2);
+    line-height: 1.6;
+    max-height: 110px;
+    overflow: hidden;
+    position: relative;
+  }
+  .inf-output::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 40px;
+    background: linear-gradient(180deg, transparent, var(--panel));
+  }
+  .inf-output .prompt { color: var(--phos); }
+  .inf-output .caret {
+    display: inline-block;
+    width: 7px; height: 12px;
+    background: var(--phos);
+    vertical-align: middle;
+    margin-left: 1px;
+    animation: blink 1s steps(2) infinite;
+    box-shadow: 0 0 6px var(--phos);
+  }
+
+  /* BENCHMARK PANEL */
+  .bench { grid-column: span 7; }
+  .bench-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr 0.9fr;
+    align-items: center;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .bench-grid:last-child { border-bottom: none; }
+  .bench-grid.head {
+    color: var(--muted);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    background: var(--bg-2);
+  }
+  .bench-grid .nm { color: var(--ink); display: flex; align-items: center; gap: 8px; }
+  .bench-grid .nm .id { font-size: 9px; color: var(--muted); }
+  .bench-grid .val {
+    color: var(--ink-2);
+  }
+  .bench-grid .val b { color: var(--ink); font-weight: 500; font-size: 13px; }
+  .bench-grid .val .u { color: var(--muted); font-size: 9.5px; margin-left: 2px; }
+  .spark {
+    width: 70px; height: 22px; display: block;
+  }
+  .spark path { stroke: var(--phos); stroke-width: 1.2; fill: none; }
+  .rank {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 22px;
+    color: var(--red);
+    letter-spacing: -0.02em;
+  }
+  .rank.gold { color: var(--amber); }
+  .rank.silver { color: var(--cyan); }
+
+  /* DIAGNOSTIC LOG */
+  .diag { grid-column: span 5; }
+  .log-body {
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.7;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--hairline-2); }
+  .log-line {
+    display: grid;
+    grid-template-columns: 72px 56px 1fr;
+    gap: 12px;
+    padding: 2px 0;
+    color: var(--ink-2);
+  }
+  .log-line .ts { color: var(--muted); font-size: 9.5px; }
+  .log-line .lv { font-size: 9px; letter-spacing: 0.14em; }
+  .log-line .lv.ok { color: var(--phos); }
+  .log-line .lv.info { color: var(--cyan); }
+  .log-line .lv.warn { color: var(--amber); }
+  .log-line .lv.err { color: var(--red); }
+  .log-line .msg b { color: var(--ink); font-weight: 500; }
+  .log-line.alert { background: linear-gradient(90deg, rgba(255,58,37,0.06), transparent 80%); padding: 4px 8px; margin: 4px -8px; border-left: 1px solid var(--red); }
+
+  /* QUICK ACTIONS strip */
+  .actions {
+    grid-column: span 12;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0;
+    border: 1px solid var(--hairline);
+    background: var(--panel);
+  }
+  .action-tile {
+    padding: 18px 18px;
+    border-right: 1px solid var(--hairline);
+    position: relative;
+    cursor: pointer;
+    transition: 0.18s;
+    overflow: hidden;
+  }
+  .action-tile:last-child { border-right: none; }
+  .action-tile:hover {
+    background: var(--panel-2);
+  }
+  .action-tile:hover .at-arrow { transform: translate(3px, -3px); color: var(--red); }
+  .action-tile .at-num {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+  }
+  .action-tile .at-title {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 6px 0 8px;
+  }
+  .action-tile .at-desc {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 90%;
+  }
+  .action-tile .at-arrow {
+    position: absolute;
+    top: 16px; right: 16px;
+    color: var(--muted);
+    transition: 0.18s;
+    font-family: var(--mono);
+  }
+
+  /* MARQUEE FOOTER */
+  .marquee {
+    height: 30px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-2);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    position: relative;
+  }
+  .marquee-track {
+    display: flex;
+    gap: 36px;
+    animation: scroll 60s linear infinite;
+    white-space: nowrap;
+    padding-left: 100%;
+  }
+  .marquee-track span b { color: var(--ink-2); font-weight: 500; }
+  .marquee-track span .red { color: var(--red); }
+  .marquee-track span .phos { color: var(--phos); }
+  @keyframes scroll {
+    to { transform: translateX(-50%); }
+  }
+
+  /* utility */
+  .row-between { display: flex; align-items: center; justify-content: space-between; }
+  .mono-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .corner {
+    position: absolute;
+    width: 6px; height: 6px;
+    border: 1px solid var(--hairline-2);
+  }
+  .corner.tl { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .corner.tr { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+  .corner.br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  /* Reveal animation */
+  .reveal { opacity: 0; transform: translateY(8px); animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+  .reveal.d1 { animation-delay: 0.05s; }
+  .reveal.d2 { animation-delay: 0.12s; }
+  .reveal.d3 { animation-delay: 0.20s; }
+  .reveal.d4 { animation-delay: 0.28s; }
+  .reveal.d5 { animation-delay: 0.36s; }
+  .reveal.d6 { animation-delay: 0.44s; }
+  .reveal.d7 { animation-delay: 0.52s; }
+  @keyframes rise {
+    to { opacity: 1; transform: none; }
+  }
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ============== SIDEBAR ============== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <div class="brand-logo"></div>
+        <div>
+          <div class="brand-name"><b>ROCm</b> <em>Forge</em></div>
+          <div class="brand-sub">v 0.4.1 · build 26052</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label"><span>Telemetry</span><span>02</span></div>
+      <div class="nav-item active">
+        <span class="nav-code">M01</span>
+        <span>Dashboard</span>
+        <span class="nav-badge live">LIVE</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M09</span>
+        <span>GPU Monitor</span>
+        <span class="nav-badge live">LIVE</span>
+      </div>
+
+      <div class="nav-label"><span>Runtime</span><span>05</span></div>
+      <div class="nav-item">
+        <span class="nav-code">M02</span>
+        <span>ROCm Manager</span>
+        <span class="nav-badge">6.2</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M03</span>
+        <span>Compatibility</span>
+        <span class="nav-badge">82</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M04</span>
+        <span>Environments</span>
+        <span class="nav-badge">4</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M05</span>
+        <span>AI Stack</span>
+        <span class="nav-badge">7/9</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M11</span>
+        <span>CUDA Migrate</span>
+        <span class="nav-badge">β</span>
+      </div>
+
+      <div class="nav-label"><span>Models</span><span>03</span></div>
+      <div class="nav-item">
+        <span class="nav-code">M06</span>
+        <span>Model Library</span>
+        <span class="nav-badge">38</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M07</span>
+        <span>Inference</span>
+        <span class="nav-badge live">LIVE</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M08</span>
+        <span>Benchmark</span>
+        <span class="nav-badge">12</span>
+      </div>
+
+      <div class="nav-label"><span>Tooling</span><span>04</span></div>
+      <div class="nav-item">
+        <span class="nav-code">M10</span>
+        <span>Profiler</span>
+        <span class="nav-badge">rocprof</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M12</span>
+        <span>Containers</span>
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M13</span>
+        <span>Diagnostics</span>
+        <span class="nav-badge">!</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-code">M14</span>
+        <span>AI Assistant</span>
+        <span class="nav-badge">β</span>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="row"><span>Host</span><b>workstation–07</b></div>
+      <div class="row"><span>Kernel</span><b>6.8.0–47</b></div>
+      <div class="row"><span>Uptime</span><b>14 d 03 h</b></div>
+      <div class="row" style="margin-top:8px; color:var(--phos)"><span>● Online</span><span id="utc-clock">—</span></div>
+    </div>
+  </aside>
+
+  <!-- ============== MAIN ============== -->
+  <main class="main">
+
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="top-stat"><span class="dot"></span><span>GPU</span><b>RX 7900 XTX</b></div>
+        <div class="divider"></div>
+        <div class="top-stat"><span>ARCH</span><b>GFX1100 · RDNA 3</b></div>
+        <div class="divider"></div>
+        <div class="top-stat"><span>ROCm</span><b>6.2.1</b></div>
+        <div class="divider"></div>
+        <div class="top-stat"><span>HIP</span><b>6.2.41133</b></div>
+        <div class="divider"></div>
+        <div class="top-stat"><span>DRIVER</span><b>amdgpu 6.10.5</b></div>
+        <div class="divider"></div>
+        <div class="top-stat"><span class="dot amber"></span><span>1 Update available</span></div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" title="search">⌕</button>
+        <button class="icon-btn" title="settings">⚙</button>
+        <button class="icon-btn" title="alerts">!</button>
+        <div style="margin-left:8px; padding-left:12px; border-left:1px solid var(--hairline); display:flex; align-items:center; gap:8px;">
+          <div style="width:24px; height:24px; background:linear-gradient(135deg,var(--red),#ff8055); display:grid; place-items:center; color:#fff; font-family:var(--mono); font-size:10px; font-weight:700;">PN</div>
+          <span style="color:var(--ink-2);">marketing@cloudairy.com</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE HEADER -->
+    <header class="page-head">
+      <div>
+        <div class="breadcrumb">
+          <span>FORGE</span><span>/</span><b>CONTROL</b><span>/</span><span class="red">DASHBOARD · M01</span>
+        </div>
+        <h1 class="page-title reveal d1">Mission control<br><em>for silicon</em>.</h1>
+        <div class="page-sub reveal d2">
+          Real-time telemetry · <span class="muted">last sync</span>
+          <b id="last-sync">12 ms ago</b> ·
+          <span class="muted">session</span> <b>#A7F-2614</b> ·
+          <span class="muted">datum</span> <b>2026.05.26 / 14:22 UTC</b>
+        </div>
+      </div>
+      <div class="head-actions reveal d3">
+        <button class="btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M2 6l3-3M2 6l3 3"/></svg>
+          EXPORT
+        </button>
+        <button class="btn">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M6 2v4l3 1.5"/></svg>
+          SNAPSHOT
+        </button>
+        <button class="btn primary">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6l2 2 4-4"/></svg>
+          RUN DIAGNOSTICS
+        </button>
+      </div>
+    </header>
+
+    <!-- DASHBOARD GRID -->
+    <section class="dash">
+
+      <!-- =============== HERO TELEMETRY =============== -->
+      <article class="panel hero reveal d2">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head hero-head">
+          <div class="title">
+            <span class="gpu-tag">RADEON RX 7900 XTX · <b>PRIMARY</b></span>
+          </div>
+          <div class="meta">
+            <span>SAMPLE 1.00 Hz</span>
+            <span class="live-dot">STREAMING</span>
+          </div>
+        </div>
+
+        <div class="hero-body">
+          <div class="big-metric">
+            <div class="label">GPU Load</div>
+            <div class="value"><span id="gpu-load">87</span><span class="unit">%</span></div>
+            <div class="sub">
+              <span class="delta">▲ +12.4</span> vs avg<br>
+              kernel: <span style="color:var(--ink)">fwd_attn_mha_fp16</span><br>
+              wavefront occ: <span style="color:var(--ink)">72%</span>
+            </div>
+          </div>
+
+          <div class="chart-area">
+            <div class="chart-meta">
+              <div class="mini-stat" style="--w:68%;">
+                <div class="l">VRAM</div>
+                <div class="v">16.4<span class="u">/24 GB</span></div>
+                <div class="bar"></div>
+              </div>
+              <div class="mini-stat warn" style="--w:74%;">
+                <div class="l">Temp</div>
+                <div class="v" id="temp-val">74<span class="u">°C</span></div>
+                <div class="bar"></div>
+              </div>
+              <div class="mini-stat" style="--w:42%;">
+                <div class="l">Fan</div>
+                <div class="v">42<span class="u">% · 1840rpm</span></div>
+                <div class="bar"></div>
+              </div>
+              <div class="mini-stat crit" style="--w:81%;">
+                <div class="l">Power</div>
+                <div class="v" id="pwr-val">287<span class="u">W</span></div>
+                <div class="bar"></div>
+              </div>
+            </div>
+
+            <div class="chart-wrap">
+              <svg viewBox="0 0 600 200" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="phosGrad" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#b6ff8a" stop-opacity="0.35"/>
+                    <stop offset="100%" stop-color="#b6ff8a" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <g class="chart-grid">
+                  <line x1="0" y1="40" x2="600" y2="40"/>
+                  <line x1="0" y1="80" x2="600" y2="80"/>
+                  <line x1="0" y1="120" x2="600" y2="120"/>
+                  <line x1="0" y1="160" x2="600" y2="160"/>
+                </g>
+                <text x="4" y="14" class="chart-axis-label">100</text>
+                <text x="4" y="84" class="chart-axis-label">50</text>
+                <text x="4" y="196" class="chart-axis-label">0%</text>
+                <text x="572" y="196" class="chart-axis-label">NOW</text>
+
+                <path id="chart-fill" class="chart-area-fill" d=""/>
+                <path id="chart-line" class="chart-line" d=""/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- =============== COMPATIBILITY SCORE =============== -->
+      <article class="panel score reveal d3">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head">
+          <div class="title"><b>Compatibility</b> · M03</div>
+          <div class="meta"><span>SCAN OK</span></div>
+        </div>
+        <div class="score-body">
+          <div class="gauge">
+            <svg viewBox="0 0 160 160">
+              <circle class="bg" cx="80" cy="80" r="68" fill="none" stroke-width="6"/>
+              <circle class="fg" cx="80" cy="80" r="68" fill="none" stroke-width="6"
+                stroke-dasharray="427" stroke-dashoffset="77" stroke-linecap="square"/>
+            </svg>
+            <div class="gauge-center">
+              <div>
+                <div class="n">82</div>
+                <div class="d">/ 100 SCORE</div>
+              </div>
+            </div>
+          </div>
+          <div class="score-checks">
+            <div class="check-row"><span class="ok">✓</span><span>GPU support</span><span class="v">RDNA 3</span></div>
+            <div class="check-row"><span class="ok">✓</span><span>Driver</span><span class="v">6.10.5</span></div>
+            <div class="check-row"><span class="ok">✓</span><span>Kernel</span><span class="v">6.8</span></div>
+            <div class="check-row"><span class="ok">✓</span><span>HIP runtime</span><span class="v">6.2</span></div>
+            <div class="check-row"><span class="warn">!</span><span>Docker</span><span class="v">missing</span></div>
+            <div class="check-row"><span class="warn">!</span><span>rocm-smi perms</span><span class="v">read-only</span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- =============== AI STACK =============== -->
+      <article class="panel stack reveal d4">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head">
+          <div class="title"><b>AI Stack</b> · M05</div>
+          <div class="meta"><span>7 of 9 installed</span></div>
+        </div>
+        <div class="panel-body">
+          <div class="stack-list">
+            <div class="stack-item">
+              <div class="glyph">π</div>
+              <div><div class="nm">PyTorch ROCm</div><div class="ver">2.4.1 · rocm6.2</div></div>
+              <span class="pill on">RUNNING</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">⌬</div>
+              <div><div class="nm">vLLM</div><div class="ver">0.6.3 · serving :8000</div></div>
+              <span class="pill on">RUNNING</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">◖</div>
+              <div><div class="nm">Ollama</div><div class="ver">0.5.4</div></div>
+              <span class="pill on">IDLE</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">▥</div>
+              <div><div class="nm">llama.cpp</div><div class="ver">b3823 · HIP</div></div>
+              <span class="pill off">STOPPED</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">◯</div>
+              <div><div class="nm">ComfyUI</div><div class="ver">downloading 1.2 GB</div></div>
+              <span class="pill dl">63%</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">J</div>
+              <div><div class="nm">Jupyter Lab</div><div class="ver">4.2.5 · :8888</div></div>
+              <span class="pill on">RUNNING</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+            <div class="stack-item">
+              <div class="glyph">τ</div>
+              <div><div class="nm">TensorFlow ROCm</div><div class="ver">version mismatch</div></div>
+              <span class="pill warn">REPAIR</span>
+              <span style="color:var(--muted);">↑</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- =============== INFERENCE =============== -->
+      <article class="panel inference reveal d4">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head">
+          <div class="title"><b>Local Inference</b> · M07</div>
+          <div class="meta"><span class="live-dot">GENERATING</span></div>
+        </div>
+        <div class="inf-current">
+          <div class="model">Llama-3.1-70B<br><span style="color:var(--ink-2);">/ Instruct</span></div>
+          <div class="quant">Q5_K_M · 49.6 GB · ctx 32 768</div>
+        </div>
+        <div class="inf-stats">
+          <div class="inf-stat">
+            <div class="l">TOK/SEC</div>
+            <div class="v" id="tps">38.2<span class="u"></span></div>
+          </div>
+          <div class="inf-stat">
+            <div class="l">TTFT</div>
+            <div class="v">214<span class="u">ms</span></div>
+          </div>
+          <div class="inf-stat">
+            <div class="l">VRAM</div>
+            <div class="v">21.8<span class="u">GB</span></div>
+          </div>
+        </div>
+        <div class="inf-output">
+          <span class="prompt">&gt;</span> Drafting kernel optimization notes for matmul on RDNA 3:
+          we should target wavefront 32, prefer LDS-resident tiling at
+          128×128, and ensure WMMA fp16 → fp32 accumulators
+          to maximize compute occupancy on the CU array<span class="caret"></span>
+        </div>
+      </article>
+
+      <!-- =============== BENCHMARK CENTER =============== -->
+      <article class="panel bench reveal d5">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head">
+          <div class="title"><b>Benchmark Leaderboard</b> · M08</div>
+          <div class="meta"><span>LAST RUN 2H AGO</span></div>
+        </div>
+        <div>
+          <div class="bench-grid head">
+            <div>MODEL · TASK</div>
+            <div>PREFILL</div>
+            <div>DECODE</div>
+            <div>TPS</div>
+            <div style="text-align:right;">RANK</div>
+          </div>
+          <div class="bench-grid">
+            <div class="nm">Llama 3.1 70B Q5<br><span class="id">LLM · text-gen</span></div>
+            <div class="val"><b>1,842</b><span class="u">t/s</span></div>
+            <div class="val"><b>38.2</b><span class="u">t/s</span></div>
+            <div class="val">
+              <svg class="spark" viewBox="0 0 70 22"><path d="M0,18 L10,14 L20,10 L30,12 L40,6 L50,8 L60,4 L70,3"/></svg>
+            </div>
+            <div class="val" style="text-align:right;"><span class="rank gold">01</span></div>
+          </div>
+          <div class="bench-grid">
+            <div class="nm">Mixtral 8x7B Q4<br><span class="id">LLM · MoE</span></div>
+            <div class="val"><b>2,164</b><span class="u">t/s</span></div>
+            <div class="val"><b>62.7</b><span class="u">t/s</span></div>
+            <div class="val">
+              <svg class="spark" viewBox="0 0 70 22"><path d="M0,20 L10,18 L20,12 L30,14 L40,8 L50,10 L60,6 L70,5"/></svg>
+            </div>
+            <div class="val" style="text-align:right;"><span class="rank silver">02</span></div>
+          </div>
+          <div class="bench-grid">
+            <div class="nm">SDXL 1.0 fp16<br><span class="id">DIFFUSION · 1024²</span></div>
+            <div class="val"><b>—</b></div>
+            <div class="val"><b>11.4</b><span class="u">it/s</span></div>
+            <div class="val">
+              <svg class="spark" viewBox="0 0 70 22"><path d="M0,16 L10,14 L20,12 L30,10 L40,11 L50,9 L60,7 L70,8"/></svg>
+            </div>
+            <div class="val" style="text-align:right;"><span class="rank">03</span></div>
+          </div>
+          <div class="bench-grid">
+            <div class="nm">bge-large-en<br><span class="id">EMBED · batch 64</span></div>
+            <div class="val"><b>—</b></div>
+            <div class="val"><b>6,420</b><span class="u">v/s</span></div>
+            <div class="val">
+              <svg class="spark" viewBox="0 0 70 22"><path d="M0,12 L10,14 L20,8 L30,10 L40,6 L50,7 L60,4 L70,3"/></svg>
+            </div>
+            <div class="val" style="text-align:right;"><span class="rank">04</span></div>
+          </div>
+          <div class="bench-grid">
+            <div class="nm">Qwen 2.5 14B Q6<br><span class="id">LLM · text-gen</span></div>
+            <div class="val"><b>3,082</b><span class="u">t/s</span></div>
+            <div class="val"><b>74.1</b><span class="u">t/s</span></div>
+            <div class="val">
+              <svg class="spark" viewBox="0 0 70 22"><path d="M0,18 L10,12 L20,14 L30,8 L40,10 L50,6 L60,8 L70,4"/></svg>
+            </div>
+            <div class="val" style="text-align:right;"><span class="rank">05</span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- =============== DIAGNOSTIC LOG =============== -->
+      <article class="panel diag reveal d5">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+
+        <div class="panel-head">
+          <div class="title"><b>System Log</b> · M13</div>
+          <div class="meta"><span>FILTER · ALL</span><span class="live-dot">TAIL</span></div>
+        </div>
+        <div class="log-body" id="log-body">
+          <div class="log-line"><span class="ts">14:22:08</span><span class="lv ok">OK</span><span class="msg">Loaded model <b>Llama-3.1-70B-Q5_K_M</b> in 4.2 s</span></div>
+          <div class="log-line"><span class="ts">14:22:04</span><span class="lv info">INFO</span><span class="msg">vLLM worker bound to GPU 0 · 24 GB pool reserved</span></div>
+          <div class="log-line"><span class="ts">14:21:51</span><span class="lv info">INFO</span><span class="msg">Compiled HIP graph · 142 kernels · cache hit</span></div>
+          <div class="log-line alert"><span class="ts">14:21:33</span><span class="lv warn">WARN</span><span class="msg">Junction temp <b>87°C</b> exceeded soft threshold (85°C). Fan curve auto-adjusted.</span></div>
+          <div class="log-line"><span class="ts">14:20:18</span><span class="lv ok">OK</span><span class="msg">Environment <b>torch-rocm-62</b> activated · py 3.11.7</span></div>
+          <div class="log-line"><span class="ts">14:19:42</span><span class="lv info">INFO</span><span class="msg">Pulled image <b>rocm/vllm:6.2-py3</b> · 4.8 GB</span></div>
+          <div class="log-line"><span class="ts">14:18:01</span><span class="lv ok">OK</span><span class="msg">ROCm 6.2.1 verification passed (97/97 checks)</span></div>
+          <div class="log-line"><span class="ts">14:17:22</span><span class="lv info">INFO</span><span class="msg">Compatibility scan complete · score <b>82</b></span></div>
+          <div class="log-line"><span class="ts">14:16:14</span><span class="lv err">ERR</span><span class="msg">Docker daemon not reachable at /var/run/docker.sock</span></div>
+          <div class="log-line"><span class="ts">14:15:00</span><span class="lv ok">OK</span><span class="msg">Forge daemon online · build 26052 · pid 4711</span></div>
+        </div>
+      </article>
+
+      <!-- =============== QUICK ACTIONS =============== -->
+      <section class="actions reveal d6">
+        <div class="action-tile">
+          <div class="at-num">Q.01</div>
+          <div class="at-title">Install<br>ROCm</div>
+          <div class="at-desc">Detect GPU, resolve deps, deploy runtime.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+        <div class="action-tile">
+          <div class="at-num">Q.02</div>
+          <div class="at-title">New<br>environment</div>
+          <div class="at-desc">venv · conda · uv · pip — your call.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+        <div class="action-tile">
+          <div class="at-num">Q.03</div>
+          <div class="at-title">Pull a<br>model</div>
+          <div class="at-desc">From HF, Ollama, ModelScope. Quantize, store.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+        <div class="action-tile">
+          <div class="at-num">Q.04</div>
+          <div class="at-title">Run<br>benchmark</div>
+          <div class="at-desc">LLM, SD, embeddings. Publish to leaderboard.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+        <div class="action-tile">
+          <div class="at-num">Q.05</div>
+          <div class="at-title">Profile<br>kernel</div>
+          <div class="at-desc">rocprof · timeline · occupancy heatmap.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+        <div class="action-tile">
+          <div class="at-num">Q.06</div>
+          <div class="at-title">Bundle<br>diagnostics</div>
+          <div class="at-desc">Logs, env, GPU info → diagnostic-report.zip.</div>
+          <div class="at-arrow">↗</div>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- TICKER FOOTER -->
+    <footer class="marquee">
+      <div class="marquee-track">
+        <span><b>ROCm 6.2.1</b> stable</span>
+        <span><span class="phos">●</span> daemon healthy · pid 4711</span>
+        <span>5 312 community benchmarks indexed</span>
+        <span><b>RDNA 3 · GFX1100</b> primary device</span>
+        <span><span class="red">⚠</span> 1 driver update available — <b>amdgpu 6.11.0</b></span>
+        <span>kernel 6.8.0–47 generic</span>
+        <span>vLLM 0.6.3 serving on :8000</span>
+        <span><span class="phos">●</span> telemetry 1.00 Hz</span>
+        <span>Forge v0.4.1 · build 26052</span>
+        <span>—</span>
+        <!-- duplicated for seamless loop -->
+        <span><b>ROCm 6.2.1</b> stable</span>
+        <span><span class="phos">●</span> daemon healthy · pid 4711</span>
+        <span>5 312 community benchmarks indexed</span>
+        <span><b>RDNA 3 · GFX1100</b> primary device</span>
+        <span><span class="red">⚠</span> 1 driver update available — <b>amdgpu 6.11.0</b></span>
+        <span>kernel 6.8.0–47 generic</span>
+        <span>vLLM 0.6.3 serving on :8000</span>
+        <span><span class="phos">●</span> telemetry 1.00 Hz</span>
+        <span>Forge v0.4.1 · build 26052</span>
+        <span>—</span>
+      </div>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  // -------- live UTC clock --------
+  const clock = document.getElementById("utc-clock");
+  function tick() {
+    const d = new Date();
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    const ss = String(d.getUTCSeconds()).padStart(2, "0");
+    clock.textContent = `${hh}:${mm}:${ss}Z`;
+  }
+  tick(); setInterval(tick, 1000);
+
+  // -------- live GPU load chart (synthetic but believable) --------
+  const N = 80;
+  let data = Array.from({ length: N }, (_, i) =>
+    65 + Math.sin(i / 6) * 10 + Math.random() * 8
+  );
+  const lineEl = document.getElementById("chart-line");
+  const fillEl = document.getElementById("chart-fill");
+  const loadEl = document.getElementById("gpu-load");
+  const tempEl = document.getElementById("temp-val");
+  const pwrEl = document.getElementById("pwr-val");
+  const tpsEl = document.getElementById("tps");
+  const syncEl = document.getElementById("last-sync");
+
+  function renderChart() {
+    const W = 600, H = 200, pad = 18;
+    const xs = (i) => pad + (i / (N - 1)) * (W - pad * 2);
+    const ys = (v) => H - 8 - (v / 100) * (H - 16);
+    let line = "";
+    let area = `M ${xs(0)} ${H}`;
+    data.forEach((v, i) => {
+      const x = xs(i).toFixed(1);
+      const y = ys(v).toFixed(1);
+      line += (i === 0 ? "M" : "L") + x + " " + y + " ";
+      area += " L " + x + " " + y;
+    });
+    area += ` L ${xs(N - 1)} ${H} Z`;
+    lineEl.setAttribute("d", line.trim());
+    fillEl.setAttribute("d", area);
+  }
+  renderChart();
+
+  function tickData() {
+    const last = data[data.length - 1];
+    const next = Math.max(
+      35,
+      Math.min(98, last + (Math.random() - 0.45) * 8)
+    );
+    data.push(next);
+    data.shift();
+    renderChart();
+    loadEl.textContent = Math.round(next);
+
+    // jitter the related metrics
+    const t = 70 + Math.round((next - 60) / 4) + Math.round(Math.random() * 2);
+    tempEl.innerHTML = t + '<span class="u">°C</span>';
+    const p = 220 + Math.round((next - 60) * 1.4) + Math.round(Math.random() * 6);
+    pwrEl.innerHTML = p + '<span class="u">W</span>';
+    const tps = (32 + Math.random() * 14).toFixed(1);
+    tpsEl.innerHTML = tps + '<span class="u"></span>';
+    syncEl.textContent = Math.round(Math.random() * 40 + 4) + " ms ago";
+  }
+  setInterval(tickData, 1000);
+
+  // -------- append a log line occasionally --------
+  const logBody = document.getElementById("log-body");
+  const fakes = [
+    { lv: "info", msg: "Sampled <b>rocm-smi</b> · 1024 frames" },
+    { lv: "ok",  msg: "Cache warmup complete · <b>HIP graph</b> reused" },
+    { lv: "info",msg: "Pulled metadata for <b>3</b> models from HF Hub" },
+    { lv: "ok",  msg: "Benchmark submission queued · waiting for sign" },
+    { lv: "warn",msg: "Memory fragmentation <b>14.2%</b> — consider defrag" },
+  ];
+  function pushLog() {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    const f = fakes[Math.floor(Math.random() * fakes.length)];
+    const div = document.createElement("div");
+    div.className = "log-line";
+    div.innerHTML =
+      `<span class="ts">${hh}:${mm}:${ss}</span>` +
+      `<span class="lv ${f.lv}">${f.lv.toUpperCase()}</span>` +
+      `<span class="msg">${f.msg}</span>`;
+    logBody.insertBefore(div, logBody.firstChild);
+    while (logBody.children.length > 16) logBody.removeChild(logBody.lastChild);
+  }
+  setInterval(pushLog, 4500);
+
+  // nav active state
+  document.querySelectorAll(".nav-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
+      el.classList.add("active");
+    });
+  });
+</script>
+
+</body>
+</html>
