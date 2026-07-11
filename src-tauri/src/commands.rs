@@ -157,11 +157,19 @@ pub struct StackInstallResult {
     pub output: String,
 }
 #[tauri::command]
-pub fn stack_install(id: String) -> StackInstallResult {
-    let Some((prog, args)) = ai_stack::install_command(&id) else {
+pub fn stack_install(env_path: String, id: String) -> StackInstallResult {
+    // Install into the user-selected virtualenv, never system Python. On modern
+    // Linux system-pip installs error (PEP 668 externally-managed) and can break
+    // the OS interpreter; a venv sidesteps both.
+    let py = environments::python_exe(std::path::Path::new(&env_path));
+    if env_path.is_empty() || !py.exists() {
+        return StackInstallResult { ok: false, output: "select a Python environment first".into() };
+    }
+    let Some((_prog, args)) = ai_stack::install_command(&id) else {
         return StackInstallResult { ok: false, output: "no install command for this item".into() };
     };
-    match Command::new(&prog).args(&args).output() {
+    // args already start with "install …"; run them through the env's own pip.
+    match Command::new(&py).arg("-m").arg("pip").args(&args).output() {
         Ok(o) => {
             let ok = o.status.success();
             let mut output = String::from_utf8_lossy(&o.stdout).to_string();

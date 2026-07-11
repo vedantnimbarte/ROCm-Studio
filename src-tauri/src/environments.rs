@@ -85,7 +85,7 @@ fn list_conda() -> Vec<PyEnv> {
         .collect()
 }
 
-fn python_exe(env_root: &std::path::Path) -> PathBuf {
+pub fn python_exe(env_root: &std::path::Path) -> PathBuf {
     if cfg!(windows) {
         let p = env_root.join("Scripts").join("python.exe");
         if p.exists() { return p; }

@@ -63,7 +63,7 @@ export const api = {
 
   // stack
   stackDetect:     () => invoke<StackItem[]>("stack_detect"),
-  stackInstall:    (id: string) => invoke<{ ok: boolean; output: string }>("stack_install", { id }),
+  stackInstall:    (envPath: string, id: string) => invoke<{ ok: boolean; output: string }>("stack_install", { envPath, id }),
 
   // models
   searchHF:        (query: string, limit = 20) => invoke<HfModel[]>("model_search_hf", { query, limit }),
