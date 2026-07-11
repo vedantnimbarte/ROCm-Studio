@@ -1,5 +1,7 @@
 use crate::error::AppResult;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HfModel {
@@ -77,6 +79,40 @@ pub async fn ollama_pull(name: &str) -> AppResult<()> {
     if !res.status().is_success() {
         return Err(format!("ollama pull failed: HTTP {}", res.status()).into());
     }
+    Ok(())
+}
+
+/// Streaming pull — forwards ollama's NDJSON progress objects to the frontend
+/// as `pull:progress` events (each has status/completed/total), then `pull:done`.
+pub async fn ollama_pull_stream(app: &AppHandle, name: &str) -> AppResult<()> {
+    let client = reqwest::Client::builder().build()?;
+    let body = serde_json::json!({ "name": name, "stream": true });
+    let res = client
+        .post("http://localhost:11434/api/pull")
+        .json(&body)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        return Err(format!("ollama pull failed: HTTP {}", res.status()).into());
+    }
+    let mut stream = res.bytes_stream();
+    let mut buf = String::new();
+    // Response is newline-delimited JSON; a chunk may split a line, so buffer.
+    while let Some(chunk) = stream.next().await {
+        buf.push_str(&String::from_utf8_lossy(&chunk?));
+        while let Some(nl) = buf.find('\n') {
+            let line: String = buf.drain(..=nl).collect();
+            let line = line.trim();
+            if line.is_empty() { continue; }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+                    return Err(err.to_string().into());
+                }
+                let _ = app.emit("pull:progress", &v);
+            }
+        }
+    }
+    let _ = app.emit("pull:done", name);
     Ok(())
 }
 

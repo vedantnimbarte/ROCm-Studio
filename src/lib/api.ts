@@ -64,11 +64,13 @@ export const api = {
   // stack
   stackDetect:     () => invoke<StackItem[]>("stack_detect"),
   stackInstall:    (envPath: string, id: string) => invoke<{ ok: boolean; output: string }>("stack_install", { envPath, id }),
+  stackInstallStream: (envPath: string, id: string) => invoke<{ ok: boolean; output: string }>("stack_install_stream", { envPath, id }),
 
   // models
   searchHF:        (query: string, limit = 20) => invoke<HfModel[]>("model_search_hf", { query, limit }),
   ollamaList:      () => invoke<OllamaModel[]>("model_ollama_list"),
   ollamaPull:      (name: string) => invoke<void>("model_ollama_pull", { name }),
+  ollamaPullStream: (name: string) => invoke<void>("model_ollama_pull_stream", { name }),
   ollamaDelete:    (name: string) => invoke<void>("model_ollama_delete", { name }),
 
   // inference
@@ -88,4 +90,11 @@ export function onGpuMetrics(cb: (m: GpuMetrics) => void): Promise<UnlistenFn> {
 }
 export function onGpuInfo(cb: (i: GpuInfo) => void): Promise<UnlistenFn> {
   return listen<GpuInfo>("gpu:info", (e) => cb(e.payload));
+}
+export function onInstallLog(cb: (line: string) => void): Promise<UnlistenFn> {
+  return listen<string>("install:log", (e) => cb(e.payload));
+}
+export interface PullProgress { status?: string; completed?: number; total?: number; digest?: string; }
+export function onPullProgress(cb: (p: PullProgress) => void): Promise<UnlistenFn> {
+  return listen<PullProgress>("pull:progress", (e) => cb(e.payload));
 }

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { api } from "../lib/api";
+import { api, onPullProgress } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Panel from "../components/Panel";
 import { bytes, compact } from "../lib/format";
@@ -11,6 +11,17 @@ export default function Models() {
   const [q, setQ] = useState("llama");
   const [submitted, setSubmitted] = useState(q);
   const [pullName, setPullName] = useState("");
+  const [progress, setProgress] = useState("");
+
+  // Live pull progress (ollama streams status + completed/total per layer).
+  useEffect(() => {
+    let stop: (() => void) | null = null;
+    onPullProgress((p) => {
+      const pct = p.total && p.completed ? ` ${Math.round((p.completed / p.total) * 100)}%` : "";
+      setProgress((p.status || "") + pct);
+    }).then((un) => { stop = un; });
+    return () => { stop?.(); };
+  }, []);
 
   const { data: hf = [], isFetching: hfLoading } = useQuery({
     queryKey: ["hf", submitted],
@@ -24,8 +35,8 @@ export default function Models() {
   });
 
   const pull = useMutation({
-    mutationFn: (name: string) => api.ollamaPull(name),
-    onSettled: () => { setPullName(""); qc.invalidateQueries({ queryKey: ["ollama-list"] }); },
+    mutationFn: (name: string) => api.ollamaPullStream(name),
+    onSettled: () => { setPullName(""); setProgress(""); qc.invalidateQueries({ queryKey: ["ollama-list"] }); },
   });
   const del = useMutation({
     mutationFn: (name: string) => api.ollamaDelete(name),
@@ -102,6 +113,9 @@ export default function Models() {
               {pull.isPending ? "PULLING…" : "PULL"}
             </button>
           </form>
+          {pull.isPending && progress && (
+            <div className="font-mono text-[10px] text-cyan mb-3">{progress}</div>
+          )}
           {pull.isError && (
             <div className="font-mono text-[10px] text-red mb-3">{(pull.error as Error).message}</div>
           )}

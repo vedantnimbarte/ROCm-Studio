@@ -20,6 +20,12 @@ const SECTIONS: { title: string; items: NavDef[] }[] = [
     { code: "M07", to: "/inference", label: "Inference", live: true },
     { code: "M08", to: "/bench", label: "Benchmark" },
   ]},
+  { title: "Tools", items: [
+    { code: "M10", to: "/profiler", label: "Profiler" },
+    { code: "M11", to: "/migrate", label: "Migration" },
+    { code: "M12", to: "/containers", label: "Containers" },
+    { code: "M13", to: "/diag", label: "Diagnostics" },
+  ]},
 ];
 
 export default function Sidebar() {

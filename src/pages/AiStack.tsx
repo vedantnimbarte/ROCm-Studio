@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, StackItem } from "../lib/api";
+import { api, StackItem, onInstallLog } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import Panel from "../components/Panel";
 
@@ -12,12 +12,19 @@ export default function AiStack() {
   const [running, setRunning] = useState<string | null>(null);
   const [env, setEnv] = useState<string>("");
 
+  // Append each install:log line live so multi-GB installs show progress.
+  useEffect(() => {
+    let stop: (() => void) | null = null;
+    onInstallLog((line) => setLog((l) => l + line + "\n")).then((un) => { stop = un; });
+    return () => { stop?.(); };
+  }, []);
+
   const install = useMutation({
     mutationFn: async (id: string) => {
       setRunning(id);
-      setLog(`$ installing ${id} into ${env}...\n`);
-      const r = await api.stackInstall(env, id);
-      setLog((l) => l + r.output + (r.ok ? "\n\n[ok]" : "\n\n[failed]"));
+      setLog(`$ installing ${id} into ${env}…\n`);
+      const r = await api.stackInstallStream(env, id);
+      setLog((l) => l + (r.ok ? "\n[ok]" : "\n[failed]"));
       return r;
     },
     onSettled: () => { setRunning(null); qc.invalidateQueries({ queryKey: ["stack"] }); },

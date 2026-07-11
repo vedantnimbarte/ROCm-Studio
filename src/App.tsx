@@ -12,6 +12,10 @@ import AiStack from "./pages/AiStack";
 import Models from "./pages/Models";
 import Inference from "./pages/Inference";
 import Benchmark from "./pages/Benchmark";
+import Profiler from "./pages/Profiler";
+import Migration from "./pages/Migration";
+import Containers from "./pages/Containers";
+import Diagnostics from "./pages/Diagnostics";
 
 export default function App() {
   const setOverview = useStore((s) => s.setOverview);
@@ -42,6 +46,10 @@ export default function App() {
         <Route path="/models" element={<Models />} />
         <Route path="/inference" element={<Inference />} />
         <Route path="/bench" element={<Benchmark />} />
+        <Route path="/profiler" element={<Profiler />} />
+        <Route path="/migrate" element={<Migration />} />
+        <Route path="/containers" element={<Containers />} />
+        <Route path="/diag" element={<Diagnostics />} />
       </Routes>
     </Shell>
   );
