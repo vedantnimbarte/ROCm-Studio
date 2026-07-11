@@ -25,7 +25,7 @@ pub async fn run_llm(state: &State<'_, AppState>, model: &str) -> AppResult<Benc
     let chat = models::ollama_chat(model, PROMPT).await?;
     let ts = chrono::Utc::now().timestamp();
     let id = {
-        let conn = state.db.lock().unwrap();
+        let conn = state.db.lock().map_err(|_| "database lock poisoned")?;
         conn.execute(
             "INSERT INTO benchmarks
              (ts, kind, model, backend, prefill_tps, decode_tps, ttft_ms, tokens, metadata)
@@ -58,7 +58,7 @@ pub async fn run_llm(state: &State<'_, AppState>, model: &str) -> AppResult<Benc
 }
 
 pub fn history(state: &State<'_, AppState>) -> AppResult<Vec<BenchResult>> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock().map_err(|_| "database lock poisoned")?;
     let mut stmt = conn.prepare(
         "SELECT id, ts, kind, model, COALESCE(backend, ''), prefill_tps, decode_tps, ttft_ms, tokens
          FROM benchmarks ORDER BY ts DESC LIMIT 50"

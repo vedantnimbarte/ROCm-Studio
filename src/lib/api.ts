@@ -80,8 +80,6 @@ export const api = {
 
   // util
   openExternal:    (url: string) => invoke<void>("open_external", { url }),
-  shell:           (program: string, args: string[]) =>
-    invoke<{ ok: boolean; stdout: string; stderr: string }>("run_shell", { program, args }),
 };
 
 // ---------- Events ----------
