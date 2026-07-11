@@ -2,8 +2,9 @@ use crate::error::AppResult;
 use crate::{ai_stack, benchmark, environments, gpu, models, rocm, system, AppState};
 use rusqlite::params;
 use serde::Serialize;
-use std::process::Command;
-use tauri::State;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use tauri::{AppHandle, Emitter, State};
 
 // ===================== SYSTEM / GPU =====================
 
@@ -180,6 +181,48 @@ pub fn stack_install(env_path: String, id: String) -> StackInstallResult {
     }
 }
 
+/// Streaming variant: emits each output line as an `install:log` event and a
+/// final `install:done` (bool). A torch/vLLM install is multi-GB and minutes
+/// long, so the blocking `stack_install` looks frozen — this one shows progress.
+#[tauri::command]
+pub fn stack_install_stream(app: AppHandle, env_path: String, id: String) -> StackInstallResult {
+    let py = environments::python_exe(std::path::Path::new(&env_path));
+    if env_path.is_empty() || !py.exists() {
+        return StackInstallResult { ok: false, output: "select a Python environment first".into() };
+    }
+    let Some((_prog, args)) = ai_stack::install_command(&id) else {
+        return StackInstallResult { ok: false, output: "no install command for this item".into() };
+    };
+    let mut child = match Command::new(&py)
+        .arg("-m").arg("pip").args(&args)
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return StackInstallResult { ok: false, output: e.to_string() },
+    };
+    let mut full = String::new();
+    // pip streams progress on stdout; warnings/errors land on stderr. Drain
+    // stdout live, then stderr — good enough for a one-at-a-time install log.
+    if let Some(out) = child.stdout.take() {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            let _ = app.emit("install:log", &line);
+            full.push_str(&line);
+            full.push('\n');
+        }
+    }
+    if let Some(err) = child.stderr.take() {
+        for line in BufReader::new(err).lines().map_while(Result::ok) {
+            let _ = app.emit("install:log", &line);
+            full.push_str(&line);
+            full.push('\n');
+        }
+    }
+    let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+    let _ = app.emit("install:done", ok);
+    StackInstallResult { ok, output: full }
+}
+
 // ===================== MODELS =====================
 
 #[tauri::command]
@@ -195,6 +238,14 @@ pub async fn model_ollama_list() -> AppResult<Vec<models::OllamaModel>> {
 #[tauri::command]
 pub async fn model_ollama_pull(name: String) -> AppResult<()> {
     models::ollama_pull(&name).await
+}
+
+/// Streaming pull: emits ollama's NDJSON progress objects as `pull:progress`
+/// events and a final `pull:done`. The non-streaming pull blocks for minutes
+/// on multi-GB models with no feedback.
+#[tauri::command]
+pub async fn model_ollama_pull_stream(app: AppHandle, name: String) -> AppResult<()> {
+    models::ollama_pull_stream(&app, &name).await
 }
 
 #[tauri::command]
