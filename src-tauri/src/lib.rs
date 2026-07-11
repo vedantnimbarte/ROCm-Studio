@@ -9,6 +9,10 @@ mod environments;
 mod ai_stack;
 mod models;
 mod benchmark;
+mod diagnostics;
+mod migration;
+mod containers;
+mod profiler;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -51,16 +55,34 @@ pub fn run() {
             // ai stack
             commands::stack_detect,
             commands::stack_install,
+            commands::stack_install_stream,
             // models
             commands::model_search_hf,
             commands::model_ollama_list,
             commands::model_ollama_pull,
+            commands::model_ollama_pull_stream,
             commands::model_ollama_delete,
             // inference
             commands::inference_chat,
             // benchmark
             commands::bench_run_llm,
             commands::bench_history,
+            // M10 profiler
+            profiler::profiler_available,
+            profiler::profiler_run,
+            // M11 migration
+            migration::migrate_scan,
+            migration::migrate_hipify_available,
+            migration::migrate_hipify,
+            // M12 containers
+            containers::container_runtime,
+            containers::container_ps,
+            containers::container_images,
+            containers::container_action,
+            containers::container_pull,
+            // M13 diagnostics
+            diagnostics::diag_preview,
+            diagnostics::diag_bundle,
             // utility
             commands::open_external,
         ])
