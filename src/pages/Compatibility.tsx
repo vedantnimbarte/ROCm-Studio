@@ -74,12 +74,12 @@ export default function Compatibility() {
                 </span>
                 <div>
                   <div className="text-ink">{c.label}</div>
-                  <div className="text-muted text-[10.5px] mt-0.5 truncate max-w-[420px]">{c.detail}</div>
+                  <div className="text-muted text-[10.5px] mt-0.5 max-w-[420px] leading-snug">{c.detail}</div>
                 </div>
                 <span className={
                   "pill " + (c.status === "ok" ? "on" : c.status === "warn" ? "warn" : "crit")
                 }>{c.status.toUpperCase()}</span>
-                <span className="text-muted text-[10px] text-right">w {c.weight}</span>
+                <span className="text-muted text-[10px] text-right">{c.weight === 0 ? "info" : "w " + c.weight}</span>
               </div>
             ))}
           </div>
