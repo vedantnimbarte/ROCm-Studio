@@ -168,37 +168,50 @@ fn sample_rocm_smi(info: &GpuInfo) -> Option<GpuMetrics> {
 
 // -------- Linux sysfs fallback --------
 
+/// Locate the amdgpu DRM device dir (…/cardN/device) for the first AMD card.
+/// The card index is NOT fixed — an iGPU is often card1/card2 (a discrete
+/// NVIDIA/other card, or the boot console, can take card0), so we scan by PCI
+/// vendor (0x1002 = AMD) rather than assuming card0. Detection AND sampling
+/// both route through this so they always agree on the same device.
+#[cfg(target_os = "linux")]
+fn amd_drm_device() -> Option<std::path::PathBuf> {
+    use std::fs;
+    for e in fs::read_dir("/sys/class/drm").ok()?.flatten() {
+        let p = e.path();
+        let name = p.file_name()?.to_string_lossy().to_string();
+        if !name.starts_with("card") || name.contains('-') { continue; } // skip connectors
+        let device = p.join("device");
+        if fs::read_to_string(device.join("vendor"))
+            .map(|v| v.trim().eq_ignore_ascii_case("0x1002"))
+            .unwrap_or(false)
+        {
+            return Some(device);
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn try_amdgpu_sysfs() -> Option<GpuInfo> {
     use std::fs;
-    let base = "/sys/class/drm";
-    let entries = fs::read_dir(base).ok()?;
-    for e in entries.flatten() {
-        let p = e.path();
-        let name = p.file_name()?.to_string_lossy().to_string();
-        if !name.starts_with("card") || name.contains('-') { continue; }
-        let device = p.join("device");
-        let vendor = fs::read_to_string(device.join("vendor")).ok()?;
-        if !vendor.trim().eq_ignore_ascii_case("0x1002") { continue; }
-        let model = fs::read_to_string(device.join("product_name"))
-            .unwrap_or_else(|_| "AMD GPU".into())
-            .trim()
-            .to_string();
-        let vram_total = fs::read_to_string(device.join("mem_info_vram_total"))
-            .ok()
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .map(|b| b / 1024 / 1024)
-            .unwrap_or(0);
-        return Some(GpuInfo {
-            name: if model.is_empty() { "AMD GPU".into() } else { model },
-            vendor: "AMD".into(),
-            arch: String::new(),
-            driver: "amdgpu".into(),
-            vram_total_mb: vram_total,
-            backend: "amdgpu-sysfs".into(),
-        });
-    }
-    None
+    let device = amd_drm_device()?;
+    let model = fs::read_to_string(device.join("product_name"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let vram_total = fs::read_to_string(device.join("mem_info_vram_total"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(|b| b / 1024 / 1024)
+        .unwrap_or(0);
+    Some(GpuInfo {
+        name: if model.is_empty() { "AMD GPU (integrated)".into() } else { model },
+        vendor: "AMD".into(),
+        arch: String::new(),
+        driver: "amdgpu".into(),
+        vram_total_mb: vram_total,
+        backend: "amdgpu-sysfs".into(),
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -208,8 +221,8 @@ fn try_amdgpu_sysfs() -> Option<GpuInfo> { None }
 #[cfg(target_os = "linux")]
 fn sample_sysfs(info: &GpuInfo) -> Option<GpuMetrics> {
     use std::fs;
-    let dev = "/sys/class/drm/card0/device";
-    let read = |f: &str| fs::read_to_string(format!("{dev}/{f}")).ok();
+    let device = amd_drm_device()?;
+    let read = |f: &str| fs::read_to_string(device.join(f)).ok();
     let load = read("gpu_busy_percent")
         .and_then(|s| s.trim().parse::<f32>().ok())
         .unwrap_or(0.0);
@@ -217,10 +230,24 @@ fn sample_sysfs(info: &GpuInfo) -> Option<GpuMetrics> {
         .and_then(|s| s.trim().parse::<u64>().ok())
         .map(|b| b / 1024 / 1024)
         .unwrap_or(0);
-    let temp = read("hwmon/hwmon0/temp1_input")
-        .or_else(|| read("hwmon/hwmon1/temp1_input"))
+    // hwmon index isn't fixed either (hwmon0..N); take the first under the device.
+    let hwmon = fs::read_dir(device.join("hwmon"))
+        .ok()
+        .and_then(|mut rd| rd.next())
+        .and_then(|e| e.ok())
+        .map(|e| e.path());
+    let hw = |f: &str| hwmon.as_ref().and_then(|h| fs::read_to_string(h.join(f)).ok());
+    let temp = hw("temp1_input")
         .and_then(|s| s.trim().parse::<f32>().ok())
         .map(|m| m / 1000.0)
+        .unwrap_or(0.0);
+    // Many iGPUs don't expose power/fan; best-effort, defaults to 0.
+    let power = hw("power1_average")
+        .and_then(|s| s.trim().parse::<f32>().ok())
+        .map(|u| u / 1_000_000.0)
+        .unwrap_or(0.0);
+    let fan = hw("fan1_input")
+        .and_then(|s| s.trim().parse::<f32>().ok())
         .unwrap_or(0.0);
     Some(GpuMetrics {
         ts: chrono::Utc::now().timestamp(),
@@ -228,8 +255,8 @@ fn sample_sysfs(info: &GpuInfo) -> Option<GpuMetrics> {
         vram_used_mb: vram_used,
         vram_total_mb: info.vram_total_mb,
         temp_c: temp,
-        fan_pct: 0.0,
-        power_w: 0.0,
+        fan_pct: fan,
+        power_w: power,
         clock_mhz: 0.0,
     })
 }
