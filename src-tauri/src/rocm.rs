@@ -122,6 +122,18 @@ pub fn compatibility(info: &GpuInfo, rocm: &RocmStatus) -> CompatReport {
         weight: 15,
     });
 
+    // Informational (weight 0, doesn't move the score): explain up front why an
+    // APU/iGPU tends to score low, instead of leaving the user to guess.
+    if is_integrated_amd(info) {
+        checks.push(CompatCheck {
+            id: "igpu".into(),
+            label: "Integrated GPU (APU)".into(),
+            status: "warn".into(),
+            detail: "Detected an AMD APU/iGPU. These are largely outside ROCm's official support — GPU compute may work only via HSA_OVERRIDE_GFX_VERSION, if at all. Live telemetry still works.".into(),
+            weight: 0,
+        });
+    }
+
     checks.push(CompatCheck {
         id: "driver".into(),
         label: "Driver present".into(),
@@ -166,9 +178,45 @@ pub fn compatibility(info: &GpuInfo, rocm: &RocmStatus) -> CompatReport {
     CompatReport { score, checks }
 }
 
+/// Heuristic for an AMD APU/iGPU: it carves out a small shared-memory "VRAM"
+/// region (256 MB–2 GB) rather than a discrete card's dedicated 4 GB+, or the
+/// detected name says "integrated". Guards against the mock backend so we only
+/// flag a real detection.
+fn is_integrated_amd(info: &GpuInfo) -> bool {
+    info.vendor.eq_ignore_ascii_case("AMD")
+        && info.backend != "mock"
+        && ((info.vram_total_mb > 0 && info.vram_total_mb <= 2048)
+            || info.name.to_lowercase().contains("integrated"))
+}
+
 pub fn which(cmd: &str) -> Option<String> {
     let prog = if cfg!(windows) { "where" } else { "which" };
     let out = Command::new(prog).arg(cmd).output().ok()?;
     if !out.status.success() { return None; }
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gpu(name: &str, vram_mb: u64, backend: &str) -> GpuInfo {
+        GpuInfo { name: name.into(), vendor: "AMD".into(), vram_total_mb: vram_mb, backend: backend.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn flags_small_vram_igpu() {
+        assert!(is_integrated_amd(&gpu("AMD GPU (integrated)", 512, "amdgpu-sysfs")));
+    }
+    #[test]
+    fn ignores_discrete_card() {
+        assert!(!is_integrated_amd(&gpu("Radeon RX 6800", 16384, "rocm-smi")));
+    }
+    #[test]
+    fn ignores_mock_and_nonamd() {
+        assert!(!is_integrated_amd(&gpu("AMD GPU", 512, "mock")));
+        let mut nvidia = gpu("GeForce", 512, "wmi");
+        nvidia.vendor = "NVIDIA".into();
+        assert!(!is_integrated_amd(&nvidia));
+    }
 }
