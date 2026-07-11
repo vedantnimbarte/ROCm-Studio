@@ -3,6 +3,7 @@ name = "rocm-forge"
 version = "0.1.0"
 description = "ROCm Forge — mission control for the ROCm ecosystem."
 authors = ["ROCm Forge"]
+license = "Apache-2.0"
 edition = "2021"
 
 [lib]

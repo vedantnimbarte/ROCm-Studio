@@ -7,14 +7,16 @@ import Panel from "../components/Panel";
 export default function AiStack() {
   const qc = useQueryClient();
   const { data: items = [], isFetching } = useQuery({ queryKey: ["stack"], queryFn: api.stackDetect });
+  const { data: envs = [] } = useQuery({ queryKey: ["envs"], queryFn: api.envList });
   const [log, setLog] = useState<string>("");
   const [running, setRunning] = useState<string | null>(null);
+  const [env, setEnv] = useState<string>("");
 
   const install = useMutation({
     mutationFn: async (id: string) => {
       setRunning(id);
-      setLog(`$ installing ${id}...\n`);
-      const r = await api.stackInstall(id);
+      setLog(`$ installing ${id} into ${env}...\n`);
+      const r = await api.stackInstall(env, id);
       setLog((l) => l + r.output + (r.ok ? "\n\n[ok]" : "\n\n[failed]"));
       return r;
     },
@@ -28,8 +30,22 @@ export default function AiStack() {
       <PageHeader
         crumb={[{ label: "FORGE" }, { label: "RUNTIME" }, { label: "AI STACK · M05", accent: true }]}
         title={<>One stack,<br /><em className="italic text-red">one click.</em></>}
-        sub={<>{installed} of {items.length} installed. Install actions shell out to pip — output appears below.</>}
-        actions={<button className="btn" onClick={() => qc.invalidateQueries({ queryKey: ["stack"] })} disabled={isFetching}>RE-SCAN</button>}
+        sub={<>{installed} of {items.length} installed. Installs run inside the selected virtualenv — never system Python.</>}
+        actions={
+          <div className="flex items-center gap-2">
+            <select
+              className="btn font-mono text-[11px]"
+              value={env}
+              onChange={(e) => setEnv(e.target.value)}
+            >
+              <option value="">SELECT ENV…</option>
+              {envs.map((v) => (
+                <option key={v.path} value={v.path}>{v.name} ({v.kind})</option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => qc.invalidateQueries({ queryKey: ["stack"] })} disabled={isFetching}>RE-SCAN</button>
+          </div>
+        }
       />
       <section className="p-8 grid grid-cols-12 gap-[18px]">
         <Panel className="col-span-7" title={<><b>Detected components</b></>}>
@@ -38,6 +54,7 @@ export default function AiStack() {
               <Row key={it.id} it={it}
                    onInstall={() => install.mutate(it.id)}
                    running={running === it.id}
+                   canInstall={!!env}
                    onDocs={() => api.openExternal(it.docs_url)} />
             ))}
           </div>
@@ -52,8 +69,8 @@ export default function AiStack() {
   );
 }
 
-function Row({ it, onInstall, running, onDocs }: {
-  it: StackItem; onInstall: () => void; running: boolean; onDocs: () => void;
+function Row({ it, onInstall, running, canInstall, onDocs }: {
+  it: StackItem; onInstall: () => void; running: boolean; canInstall: boolean; onDocs: () => void;
 }) {
   return (
     <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 items-center py-3 font-mono text-[12px]">
@@ -64,7 +81,8 @@ function Row({ it, onInstall, running, onDocs }: {
       </div>
       <span className={"pill " + (it.installed ? "on" : "off")}>{it.installed ? "INSTALLED" : "MISSING"}</span>
       {!it.installed ? (
-        <button className="btn" disabled={running} onClick={onInstall}>
+        <button className="btn" disabled={running || !canInstall} onClick={onInstall}
+                title={canInstall ? "" : "Select an environment first"}>
           {running ? "INSTALLING…" : "INSTALL"}
         </button>
       ) : <span className="text-muted text-[10px]">—</span>}

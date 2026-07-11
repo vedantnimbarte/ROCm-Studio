@@ -85,7 +85,7 @@ fn list_conda() -> Vec<PyEnv> {
         .collect()
 }
 
-fn python_exe(env_root: &std::path::Path) -> PathBuf {
+pub fn python_exe(env_root: &std::path::Path) -> PathBuf {
     if cfg!(windows) {
         let p = env_root.join("Scripts").join("python.exe");
         if p.exists() { return p; }
@@ -125,7 +125,17 @@ pub fn create_venv(name: &str) -> AppResult<PyEnv> {
 
 pub fn delete_env(path: &str) -> AppResult<()> {
     let p = std::path::Path::new(path);
-    if !p.exists() { return Err("env does not exist".into()); }
+    if !p.exists() || !p.is_dir() { return Err("env does not exist".into()); }
+    // Only delete things that are actually a Python environment. A venv always
+    // carries pyvenv.cfg; a conda env always carries a conda-meta/ dir. Without
+    // this a bogus/hostile path (e.g. "~" or "/") from the frontend would be
+    // recursively removed. ponytail: marker check, not a full path allowlist —
+    // tighten to the known env roots if that ever proves insufficient.
+    let is_venv = p.join("pyvenv.cfg").is_file();
+    let is_conda = p.join("conda-meta").is_dir();
+    if !is_venv && !is_conda {
+        return Err("refusing to delete: not a Python environment (no pyvenv.cfg or conda-meta)".into());
+    }
     std::fs::remove_dir_all(p)?;
     Ok(())
 }

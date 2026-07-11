@@ -1,7 +1,7 @@
 use crate::error::AppResult;
 use crate::{ai_stack, benchmark, environments, gpu, models, rocm, system, AppState};
 use rusqlite::params;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::process::Command;
 use tauri::State;
 
@@ -43,7 +43,7 @@ pub struct MetricsRow {
 #[tauri::command]
 pub fn sys_metrics_history(state: State<'_, AppState>, since_secs: i64) -> AppResult<Vec<MetricsRow>> {
     let cutoff = chrono::Utc::now().timestamp() - since_secs.max(60);
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock().map_err(|_| "database lock poisoned")?;
     let mut stmt = conn.prepare(
         "SELECT ts, gpu_load, vram_used, vram_total, temp_c, fan_pct, power_w
          FROM metrics_history WHERE ts >= ? ORDER BY ts ASC"
@@ -157,11 +157,19 @@ pub struct StackInstallResult {
     pub output: String,
 }
 #[tauri::command]
-pub fn stack_install(id: String) -> StackInstallResult {
-    let Some((prog, args)) = ai_stack::install_command(&id) else {
+pub fn stack_install(env_path: String, id: String) -> StackInstallResult {
+    // Install into the user-selected virtualenv, never system Python. On modern
+    // Linux system-pip installs error (PEP 668 externally-managed) and can break
+    // the OS interpreter; a venv sidesteps both.
+    let py = environments::python_exe(std::path::Path::new(&env_path));
+    if env_path.is_empty() || !py.exists() {
+        return StackInstallResult { ok: false, output: "select a Python environment first".into() };
+    }
+    let Some((_prog, args)) = ai_stack::install_command(&id) else {
         return StackInstallResult { ok: false, output: "no install command for this item".into() };
     };
-    match Command::new(&prog).args(&args).output() {
+    // args already start with "install …"; run them through the env's own pip.
+    match Command::new(&py).arg("-m").arg("pip").args(&args).output() {
         Ok(o) => {
             let ok = o.status.success();
             let mut output = String::from_utf8_lossy(&o.stdout).to_string();
@@ -213,25 +221,6 @@ pub fn bench_history(state: State<'_, AppState>) -> AppResult<Vec<benchmark::Ben
 }
 
 // ===================== UTIL =====================
-
-#[derive(Serialize, Deserialize)]
-pub struct ShellResult {
-    pub ok: bool,
-    pub stdout: String,
-    pub stderr: String,
-}
-
-#[tauri::command]
-pub fn run_shell(program: String, args: Vec<String>) -> ShellResult {
-    match Command::new(&program).args(&args).output() {
-        Ok(o) => ShellResult {
-            ok: o.status.success(),
-            stdout: String::from_utf8_lossy(&o.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&o.stderr).to_string(),
-        },
-        Err(e) => ShellResult { ok: false, stdout: String::new(), stderr: e.to_string() },
-    }
-}
 
 #[tauri::command]
 pub fn open_external(url: String) -> AppResult<()> {
